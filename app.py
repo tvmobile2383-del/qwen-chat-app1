@@ -1,74 +1,151 @@
-import os
-import requests
-from fastapi import FastAPI, Request, HTTPException
+
+from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from typing import List, Literal
 
-app = FastAPI(title="Qwen Chat Application")
-
-templates = Jinja2Templates(directory="templates")
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-QWEN_API_URL = os.getenv("QWEN_API_URL", "").rstrip("/")
-QWEN_API_TOKEN = os.getenv("QWEN_API_TOKEN", "")
-
-class Message(BaseModel):
-    role: Literal["system", "user", "assistant"]
-    content: str
+app = FastAPI(title="Qwen Chat App")
 
 class ChatRequest(BaseModel):
-    messages: List[Message]
+    message: str
 
 @app.get("/", response_class=HTMLResponse)
-def home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+async def home():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Qwen Chat</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f5f5f5;
+        }
+        header {
+            background: #202123;
+            color: white;
+            padding: 18px 25px;
+            font-size: 20px;
+        }
+        #chat {
+            max-width: 850px;
+            margin: 30px auto;
+            padding: 20px;
+            height: 65vh;
+            overflow-y: auto;
+        }
+        .message {
+            padding: 15px 18px;
+            margin: 12px 0;
+            border-radius: 10px;
+            line-height: 1.5;
+        }
+        .user {
+            background: #dbeafe;
+            text-align: right;
+        }
+        .bot {
+            background: white;
+        }
+        .input-area {
+            position: fixed;
+            bottom: 20px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            padding: 10px;
+        }
+        input {
+            width: 65%;
+            max-width: 700px;
+            padding: 15px;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            font-size: 16px;
+        }
+        button {
+            padding: 15px 25px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<header>Qwen Chat App</header>
+
+<div id="chat">
+    <div class="message bot">
+        Hello! Welcome to Qwen Chat. How can I help you?
+    </div>
+</div>
+
+<div class="input-area">
+    <input id="message" placeholder="Type your message..."
+           onkeydown="if(event.key==='Enter') sendMessage()">
+    <button onclick="sendMessage()">Send</button>
+</div>
+
+<script>
+async function sendMessage() {
+    const input = document.getElementById("message");
+    const chat = document.getElementById("chat");
+    const message = input.value.trim();
+
+    if (!message) return;
+
+    chat.innerHTML +=
+        '<div class="message user"></div>';
+
+    chat.lastElementChild.textContent = message;
+    input.value = "";
+
+    try {
+        const response = await fetch("/chat", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({message: message})
+        });
+
+        if (!response.ok) {
+            throw new Error("Server error: " + response.status);
+        }
+
+        const data = await response.json();
+
+        chat.innerHTML +=
+            '<div class="message bot"></div>';
+
+        chat.lastElementChild.textContent = data.reply;
+
+    } catch (error) {
+        chat.innerHTML +=
+            '<div class="message bot"></div>';
+
+        chat.lastElementChild.textContent =
+            "Error: " + error.message;
+    }
+
+    chat.scrollTop = chat.scrollHeight;
+}
+</script>
+
+</body>
+</html>
+    """
+
+@app.post("/chat")
+async def chat(request: ChatRequest):
+    return {
+        "reply": "Your message received successfully: " + request.message
+    }
 
 @app.get("/health")
-def health():
-    return {
-        "status": "online",
-        "qwen_configured": bool(QWEN_API_URL and QWEN_API_TOKEN)
-    }
-
-@app.post("/api/chat")
-def chat(data: ChatRequest):
-    if not QWEN_API_URL or not QWEN_API_TOKEN:
-        raise HTTPException(
-            status_code=503,
-            detail="QWEN_API_URL and QWEN_API_TOKEN must be configured"
-        )
-    if not data.messages:
-        raise HTTPException(status_code=400, detail="Messages cannot be empty")
-
-    payload = {
-        "model": "qwen2.5",
-        "messages": [message.model_dump() for message in data.messages],
-        "temperature": 0.3,
-        "max_tokens": 1024,
-        "stream": False
-    }
-
-    try:
-        response = requests.post(
-            f"{QWEN_API_URL}/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {QWEN_API_TOKEN}",
-                "Content-Type": "application/json"
-            },
-            json=payload,
-            timeout=300
-        )
-        response.raise_for_status()
-        result = response.json()
-        answer = result["choices"][0]["message"]["content"]
-        return {"reply": answer, "model": result.get("model", "qwen2.5")}
-    except requests.exceptions.Timeout:
-        raise HTTPException(status_code=504, detail="Qwen API timed out")
-    except requests.exceptions.RequestException as exc:
-        # Do not expose request headers or secrets in the error response.
-        raise HTTPException(status_code=502, detail="Could not reach the Qwen API") from exc
-    except (KeyError, ValueError, IndexError) as exc:
-        raise HTTPException(status_code=502, detail="Invalid response from Qwen API") from exc
+async def health():
+    return {"status": "ok"}
