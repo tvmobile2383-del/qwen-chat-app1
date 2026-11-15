@@ -11,7 +11,14 @@ app = FastAPI(title="Qwen Chat App")
 
 # Configuration from Render environment variables
 QWEN_API_URL = os.getenv("QWEN_API_URL", "")
-QWEN_API_TOKEN = os.getenv("QWEN_API_TOKEN", "")
+QWEN_API_TOKEN = os.getenv("QWEN_API_TOKEN", "").strip()
+
+headers = {
+    "Content-Type": "application/json"
+}
+
+if QWEN_API_TOKEN:
+    headers["Authorization"] = f"Bearer {QWEN_API_TOKEN}"
 QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen2.5")
 
 
